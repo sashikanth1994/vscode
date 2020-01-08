@@ -18,6 +18,7 @@ import { REMOTE_HOST_SCHEME } from 'vs/platform/remote/common/remoteHosts';
 import { posix, win32 } from 'vs/base/common/path';
 import { ITerminalInstanceService } from 'vs/workbench/contrib/terminal/browser/terminal';
 import { OperatingSystem, isMacintosh } from 'vs/base/common/platform';
+import { IMarkdownString, MarkdownString } from 'vs/base/common/htmlContent';
 
 const pathPrefix = '(\\.\\.?|\\~)';
 const pathSeparatorClause = '\\/';
@@ -99,9 +100,13 @@ export class TerminalLinkHandler {
 			let verticalAlignment = WidgetVerticalAlignment.Bottom;
 
 			// Show the tooltip on the top of the next row to avoid obscuring the first row
-			if (location.start.y === 0) {
-				offsetRow--;
+			if (location.start.y <= 0) {
+				offsetRow = this._xterm.rows - 1;
 				verticalAlignment = WidgetVerticalAlignment.Top;
+				// The start of the wrapped line is above the viewport, move to start of the line
+				if (location.start.y < 0) {
+					location.start.x = 0;
+				}
 			}
 
 			if (this._configHelper.config.rendererType === 'dom') {
@@ -112,7 +117,7 @@ export class TerminalLinkHandler {
 				const leftPosition = location.start.x * (charWidth! + (font.letterSpacing / window.devicePixelRatio));
 				const bottomPosition = offsetRow * (Math.ceil(charHeight! * window.devicePixelRatio) * font.lineHeight) / window.devicePixelRatio;
 
-				this._widgetManager.showMessage(leftPosition, bottomPosition, this._getLinkHoverString(), verticalAlignment);
+				this._widgetManager.showMessage(leftPosition, bottomPosition, this._getLinkHoverString(uri), verticalAlignment);
 			} else {
 				const target = (e.target as HTMLElement);
 				const colWidth = target.offsetWidth / this._xterm.cols;
@@ -120,7 +125,7 @@ export class TerminalLinkHandler {
 
 				const leftPosition = location.start.x * colWidth;
 				const bottomPosition = offsetRow * rowHeight;
-				this._widgetManager.showMessage(leftPosition, bottomPosition, this._getLinkHoverString(), verticalAlignment);
+				this._widgetManager.showMessage(leftPosition, bottomPosition, this._getLinkHoverString(uri), verticalAlignment);
 			}
 		};
 		this._leaveCallback = () => {
@@ -262,8 +267,7 @@ export class TerminalLinkHandler {
 	}
 
 	private _handleHypertextLink(url: string): void {
-		const uri = URI.parse(url);
-		this._openerService.open(uri, { allowTunneling: !!(this._processManager && this._processManager.remoteAuthority) });
+		this._openerService.open(url, { allowTunneling: !!(this._processManager && this._processManager.remoteAuthority) });
 	}
 
 	private _isLinkActivationModifierDown(event: MouseEvent): boolean {
@@ -274,19 +278,29 @@ export class TerminalLinkHandler {
 		return isMacintosh ? event.metaKey : event.ctrlKey;
 	}
 
-	private _getLinkHoverString(): string {
+	private _getLinkHoverString(uri: string): IMarkdownString {
 		const editorConf = this._configurationService.getValue<{ multiCursorModifier: 'ctrlCmd' | 'alt' }>('editor');
+
+		let label = '';
 		if (editorConf.multiCursorModifier === 'ctrlCmd') {
 			if (isMacintosh) {
-				return nls.localize('terminalLinkHandler.followLinkAlt.mac', "Option + click to follow link");
+				label = nls.localize('terminalLinkHandler.followLinkAlt.mac', "Option + click");
 			} else {
-				return nls.localize('terminalLinkHandler.followLinkAlt', "Alt + click to follow link");
+				label = nls.localize('terminalLinkHandler.followLinkAlt', "Alt + click");
+			}
+		} else {
+			if (isMacintosh) {
+				label = nls.localize('terminalLinkHandler.followLinkCmd', "Cmd + click");
+			} else {
+				label = nls.localize('terminalLinkHandler.followLinkCtrl', "Ctrl + click");
 			}
 		}
-		if (isMacintosh) {
-			return nls.localize('terminalLinkHandler.followLinkCmd', "Cmd + click to follow link");
-		}
-		return nls.localize('terminalLinkHandler.followLinkCtrl', "Ctrl + click to follow link");
+
+		const message: IMarkdownString = new MarkdownString(`[Follow Link](${uri}) (${label})`, true);
+		message.uris = {
+			[uri]: URI.parse(uri).toJSON()
+		};
+		return message;
 	}
 
 	private get osPath(): IPath {

@@ -26,6 +26,7 @@ import { INotificationService, IPromptChoice, Severity } from 'vs/platform/notif
 import { IStorageService } from 'vs/platform/storage/common/storage';
 import { ITerminalService } from 'vs/workbench/contrib/terminal/browser/terminal';
 import { assertIsDefined } from 'vs/base/common/types';
+import { BrowserFeatures } from 'vs/base/browser/canIUse';
 
 const FIND_FOCUS_CLASS = 'find-focused';
 
@@ -87,7 +88,7 @@ export class TerminalPanel extends Panel {
 						label: nls.localize('terminal.useMonospace', "Use 'monospace'"),
 						run: () => this._configurationService.updateValue('terminal.integrated.fontFamily', 'monospace'),
 					}];
-					this._notificationService.prompt(Severity.Warning, nls.localize('terminal.monospaceOnly', "The terminal only supports monospace fonts."), choices);
+					this._notificationService.prompt(Severity.Warning, nls.localize('terminal.monospaceOnly', "The terminal only supports monospace fonts. Be sure to restart VS Code if this is a newly installed font."), choices);
 				}
 			}
 		}));
@@ -99,6 +100,7 @@ export class TerminalPanel extends Panel {
 				if (this._terminalService.terminalInstances.length > 0) {
 					this._updateFont();
 					this._updateTheme();
+					this._terminalService.getActiveTab()?.setVisible(visible);
 				} else {
 					// Check if instances were already restored as part of workbench restore
 					if (this._terminalService.terminalInstances.length === 0) {
@@ -141,13 +143,22 @@ export class TerminalPanel extends Panel {
 	private _getContextMenuActions(): IAction[] {
 		if (!this._contextMenuActions || !this._copyContextMenuAction) {
 			this._copyContextMenuAction = this._instantiationService.createInstance(CopyTerminalSelectionAction, CopyTerminalSelectionAction.ID, CopyTerminalSelectionAction.SHORT_LABEL);
+
+			const clipboardActions = [];
+			if (BrowserFeatures.clipboard.writeText) {
+				clipboardActions.push(this._copyContextMenuAction);
+			}
+			if (BrowserFeatures.clipboard.readText) {
+				clipboardActions.push(this._instantiationService.createInstance(TerminalPasteAction, TerminalPasteAction.ID, TerminalPasteAction.SHORT_LABEL));
+			}
+
+			clipboardActions.push(this._instantiationService.createInstance(SelectAllTerminalAction, SelectAllTerminalAction.ID, SelectAllTerminalAction.LABEL));
+
 			this._contextMenuActions = [
 				this._instantiationService.createInstance(CreateNewTerminalAction, CreateNewTerminalAction.ID, CreateNewTerminalAction.SHORT_LABEL),
 				this._instantiationService.createInstance(SplitTerminalAction, SplitTerminalAction.ID, SplitTerminalAction.SHORT_LABEL),
 				new Separator(),
-				this._copyContextMenuAction,
-				this._instantiationService.createInstance(TerminalPasteAction, TerminalPasteAction.ID, TerminalPasteAction.SHORT_LABEL),
-				this._instantiationService.createInstance(SelectAllTerminalAction, SelectAllTerminalAction.ID, SelectAllTerminalAction.LABEL),
+				...clipboardActions,
 				new Separator(),
 				this._instantiationService.createInstance(ClearTerminalAction, ClearTerminalAction.ID, ClearTerminalAction.LABEL),
 				new Separator(),
@@ -252,10 +263,9 @@ export class TerminalPanel extends Panel {
 					getActions: () => this._getContextMenuActions(),
 					getActionsContext: () => this._parentDomElement
 				});
-			} else {
-				event.preventDefault();
-				event.stopImmediatePropagation();
 			}
+			event.preventDefault();
+			event.stopImmediatePropagation();
 			this._cancelContextMenu = false;
 		}));
 		this._register(dom.addDisposableListener(document, 'keydown', (event: KeyboardEvent) => {

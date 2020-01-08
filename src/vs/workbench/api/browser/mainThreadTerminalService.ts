@@ -163,15 +163,22 @@ export class MainThreadTerminalService implements MainThreadTerminalServiceShape
 	}
 
 	private _onTerminalDisposed(terminalInstance: ITerminalInstance): void {
-		this._proxy.$acceptTerminalClosed(terminalInstance.id);
+		this._proxy.$acceptTerminalClosed(terminalInstance.id, terminalInstance.exitCode);
 	}
 
 	private _onTerminalOpened(terminalInstance: ITerminalInstance): void {
+		const shellLaunchConfigDto: IShellLaunchConfigDto = {
+			name: terminalInstance.shellLaunchConfig.name,
+			executable: terminalInstance.shellLaunchConfig.executable,
+			args: terminalInstance.shellLaunchConfig.args,
+			cwd: terminalInstance.shellLaunchConfig.cwd,
+			env: terminalInstance.shellLaunchConfig.env
+		};
 		if (terminalInstance.title) {
-			this._proxy.$acceptTerminalOpened(terminalInstance.id, terminalInstance.title);
+			this._proxy.$acceptTerminalOpened(terminalInstance.id, terminalInstance.title, shellLaunchConfigDto);
 		} else {
 			terminalInstance.waitForTitle().then(title => {
-				this._proxy.$acceptTerminalOpened(terminalInstance.id, title);
+				this._proxy.$acceptTerminalOpened(terminalInstance.id, title, shellLaunchConfigDto);
 			});
 		}
 	}
@@ -257,7 +264,7 @@ export class MainThreadTerminalService implements MainThreadTerminalServiceShape
 		this._getTerminalProcess(terminalId).then(e => e.emitReady(pid, cwd));
 	}
 
-	public $sendProcessExit(terminalId: number, exitCode: number): void {
+	public $sendProcessExit(terminalId: number, exitCode: number | undefined): void {
 		this._getTerminalProcess(terminalId).then(e => e.emitExit(exitCode));
 		this._terminalProcesses.delete(terminalId);
 	}
@@ -336,7 +343,7 @@ class TerminalDataEventTracker extends Disposable {
 	) {
 		super();
 
-		this._register(this._bufferer = new TerminalDataBufferer());
+		this._register(this._bufferer = new TerminalDataBufferer(this._callback));
 
 		this._terminalService.terminalInstances.forEach(instance => this._registerInstance(instance));
 		this._register(this._terminalService.onInstanceCreated(instance => this._registerInstance(instance)));
@@ -345,6 +352,6 @@ class TerminalDataEventTracker extends Disposable {
 
 	private _registerInstance(instance: ITerminalInstance): void {
 		// Buffer data events to reduce the amount of messages going to the extension host
-		this._register(this._bufferer.startBuffering(instance.id, instance.onData, this._callback));
+		this._register(this._bufferer.startBuffering(instance.id, instance.onData));
 	}
 }
